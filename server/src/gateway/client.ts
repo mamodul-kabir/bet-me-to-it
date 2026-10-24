@@ -36,7 +36,7 @@ export class GatewayClient {
   /**
    * Helper to perform authenticated requests to the True Markets API.
    */
-  private async request<T>(
+  public async request<T>(
     endpoint: string,
     options: RequestInit = {},
     requireUserContext: boolean = false
@@ -50,7 +50,6 @@ export class GatewayClient {
 
     if (requireUserContext) {
       if (!this.currentUserId) {
-        // Auto-initialize user if not set
         await this.ensureUserInitialized();
       }
       if (this.currentUserId) {
@@ -116,7 +115,6 @@ export class GatewayClient {
         this.currentUserId = user.user_id;
         return user;
       } catch (err: any) {
-        // If 503: wallets are still provisioning, wait and retry
         if (err.status === 503 && maxRetries > 1) {
           maxRetries--;
           await new Promise((r) => setTimeout(r, delayMs));
@@ -158,6 +156,25 @@ export class GatewayClient {
   public async getAssets(): Promise<any[]> {
     const res = await this.request<any>('/v1/gateway/assets', { method: 'GET' });
     return res.data || res || [];
+  }
+
+  /**
+   * Fetch public DeFi price candles for charting and market prices.
+   */
+  public async getCandles(
+    symbol: string,
+    window: string = '1d',
+    resolution: string = '1h'
+  ): Promise<any> {
+    const url = `${this.baseUrl}/v1/defi/market/prices/candles?symbol=${encodeURIComponent(
+      symbol
+    )}&window=${encodeURIComponent(window)}&resolution=${encodeURIComponent(resolution)}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Candle API Error [${res.status}]: ${errText}`);
+    }
+    return await res.json();
   }
 
   /**
@@ -203,15 +220,27 @@ export class GatewayClient {
   /**
    * Submit a transfer/payment, co-sign payloads, and execute.
    */
-  public async createAndExecuteTransfer(transferReq: TransferRequest): Promise<TransferResponse> {
+  public async createAndExecuteTransfer(transferReq: {
+    to: string;
+    qty: string;
+    asset_id: string;
+    qty_unit?: string;
+  }): Promise<TransferResponse> {
     await this.ensureUserInitialized();
+
+    const body = {
+      asset_id: transferReq.asset_id,
+      qty: transferReq.qty,
+      qty_unit: transferReq.qty_unit || 'base',
+      to: transferReq.to,
+    };
 
     // 1. Create transfer
     const created = await this.request<TransferResponse>(
       '/v1/gateway/transfers',
       {
         method: 'POST',
-        body: JSON.stringify(transferReq),
+        body: JSON.stringify(body),
       },
       true
     );
@@ -239,8 +268,44 @@ export class GatewayClient {
 
     return created;
   }
+
+  /**
+   * Fetch paginated list of user's orders.
+   */
+  public async getOrders(limit: number = 50): Promise<any> {
+    await this.ensureUserInitialized();
+    return await this.request<any>(
+      `/v1/gateway/orders?limit=${limit}`,
+      { method: 'GET' },
+      true
+    );
+  }
+
+  /**
+   * Fetch paginated list of user's transfers.
+   */
+  public async getTransfers(limit: number = 50): Promise<any> {
+    await this.ensureUserInitialized();
+    return await this.request<any>(
+      `/v1/gateway/transfers?limit=${limit}`,
+      { method: 'GET' },
+      true
+    );
+  }
+
+  /**
+   * Fetch unified transactions feed (orders + transfers + ramps).
+   */
+  public async getTransactions(type?: string, limit: number = 50): Promise<any> {
+    await this.ensureUserInitialized();
+    const query = type ? `?type=${type}&limit=${limit}` : `?limit=${limit}`;
+    return await this.request<any>(
+      `/v1/gateway/transactions${query}`,
+      { method: 'GET' },
+      true
+    );
+  }
 }
 
 // Export singleton instance
 export const gatewayClient = new GatewayClient();
-

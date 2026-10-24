@@ -505,47 +505,47 @@ bet-me-to-it/
 
 **Goal:** Implement all Rule 1 mandatory Gateway endpoints and wire up the SQLite database for transaction logging.
 
-- [ ] **2.1 — Database setup**
-  - [ ] Create `server/src/db/schema.sql` with all CREATE TABLE statements from §2
-  - [ ] Create `server/src/db/connection.ts`: initialize `better-sqlite3`, enable WAL mode, auto-create `data/` dir
-  - [ ] Create `server/src/db/migrate.ts`: read `schema.sql`, execute all statements, seed `charity_wallets` with 3 demo charities and seed `users` with the admin user
-  - [ ] Call `migrate()` on server startup in `index.ts`
+- [x] **2.1 — Database setup**
+  - [x] Create `server/src/db/schema.sql` with all CREATE TABLE statements from §2
+  - [x] Create `server/src/db/connection.ts`: initialize SQLite via `node:sqlite`, enable WAL mode, auto-create `data/` dir
+  - [x] Create `server/src/db/migrate.ts`: read `schema.sql`, execute all statements, seed `charity_wallets` with 3 demo charities and seed `users` with the admin user
+  - [x] Call `migrate()` on server startup in `index.ts`
 
-- [ ] **2.2 — Wallet & balance route**
-  - [ ] `POST /api/gateway/auth` — Trigger org token mint (or return cached), fetch/store user's TM user ID + wallet addresses in `users` table, return wallet info
-  - [ ] `GET /api/gateway/wallet` — Fetch live balances from Gateway (`GET /v1/gateway/balances`), return formatted response with Solana address, EVM address, PYUSD balance, and all asset balances
+- [x] **2.2 — Wallet & balance route**
+  - [x] `POST /api/gateway/auth` — Trigger org token mint (or return cached), fetch/store user's TM user ID + wallet addresses in `users` table, return wallet info
+  - [x] `GET /api/gateway/wallet` — Fetch live balances from Gateway (`GET /v1/gateway/balances`), return formatted response with Solana address, EVM address, PYUSD balance, and all asset balances
 
-- [ ] **2.3 — Market data routes**
-  - [ ] `GET /api/gateway/markets` — Fetch tradable assets list from Gateway, return asset catalog with live prices
-  - [ ] `GET /api/gateway/markets/:assetId/candles` — Fetch historical price candles, return OHLCV data for charting
+- [x] **2.3 — Market data routes**
+  - [x] `GET /api/gateway/markets` — Fetch tradable assets list from Gateway, return asset catalog with live prices
+  - [x] `GET /api/gateway/markets/:symbol/candles` — Fetch historical price candles, return OHLCV data for charting
 
-- [ ] **2.4 — Trading route (buy/sell orders)**
-  - [ ] `POST /api/gateway/trade` — Accept `{asset_id, qty, qty_unit, side, type}` from frontend
-  - [ ] Create order via `POST /v1/gateway/orders`
-  - [ ] Sign returned payloads using `signer.signPayloads()`
-  - [ ] Execute via `POST /v1/gateway/orders/{id}/execute`
-  - [ ] Log the entire lifecycle to `gateway_transactions` table
-  - [ ] Return execution result with fill details and 20 bps fee breakdown
+- [x] **2.4 — Trading route (buy/sell orders)**
+  - [x] `POST /api/gateway/trade` — Accept `{asset_id, qty, qty_unit, side, type}` from frontend
+  - [x] Create order via `POST /v1/gateway/orders`
+  - [x] Sign returned payloads using `signer.signPayloads()`
+  - [x] Execute via `POST /v1/gateway/orders/{id}/execute`
+  - [x] Log the entire lifecycle to `gateway_transactions` table
+  - [x] Return execution result with fill details and 20 bps fee breakdown
 
-- [ ] **2.5 — Transfer/payment route**
-  - [ ] `POST /api/gateway/transfer` — Accept `{destination_address, amount, asset_id, chain}`
-  - [ ] Create transfer via `POST /v1/gateway/transfers`
-  - [ ] Sign returned payloads using `signer.signPayloads()`
-  - [ ] Execute via `POST /v1/gateway/transfers/{id}/execute`
-  - [ ] Log to `gateway_transactions` table
-  - [ ] Return transfer confirmation
+- [x] **2.5 — Transfer/payment route**
+  - [x] `POST /api/gateway/transfer` — Accept `{to, destination_address, qty, amount, asset_id}`
+  - [x] Create transfer via `POST /v1/gateway/transfers`
+  - [x] Sign returned payloads using `signer.signPayloads()`
+  - [x] Execute via `POST /v1/gateway/transfers/{id}/execute`
+  - [x] Log to `gateway_transactions` table
+  - [x] Return transfer confirmation
 
-- [ ] **2.6 — Order & transaction history routes**
-  - [ ] `GET /api/gateway/orders` — Fetch paginated order list from Gateway
-  - [ ] `GET /api/gateway/transactions` — Fetch unified transaction feed from Gateway + merge local DB records
+- [x] **2.6 — Order & transaction history routes**
+  - [x] `GET /api/gateway/orders` — Fetch paginated order list from Gateway
+  - [x] `GET /api/gateway/transactions` — Fetch unified transaction feed from Gateway + merge local DB records
 
-- [ ] **2.7 — Charity wallet management**
-  - [ ] `GET /api/charities` — List all active charity wallets from DB
-  - [ ] Seed database with 3 hardcoded demo charities (e.g., Save the Children, Code.org Foundation, Against Malaria Foundation) with real-ish Solana addresses
+- [x] **2.7 — Charity wallet management**
+  - [x] `GET /api/charities` — List all active charity wallets from DB
+  - [x] Seed database with 3 hardcoded demo charities (Save the Children, Code.org Foundation, Against Malaria Foundation) with verified addresses
 
-- [ ] **2.8 — End-to-end backend test**
-  - [ ] Manually test: auth → fetch wallet → fetch markets → place a \$2 PYUSD buy order for NVDA → verify execution in transaction log
-  - [ ] Manually test: auth → send \$1 PYUSD transfer to a known address → verify transfer logged
+- [x] **2.8 — End-to-end backend test**
+  - [x] Tested auth → fetch wallet → fetch markets → place buy order on mainnet → verified execution & 20 bps fee calculation in transaction log
+  - [x] Tested mainnet PYUSD transfer with payload signing → verified tx on Solscan and logged in database
 
 ---
 

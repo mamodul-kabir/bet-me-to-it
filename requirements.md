@@ -112,7 +112,7 @@ The application must interface with the **True Markets Gateway API** on mainnet 
 
 ## 6. Live Judging Verification Checklist
 - [x] Wallet addresses (Solana & EVM) and real PYUSD balance load live from True Markets Gateway.
-- [ ] Standard Buy/Sell trade works end-to-end on mainnet with $0.2\%$ fee displayed.
-- [ ] Standard Payment/Transfer works end-to-end on mainnet.
+- [x] Standard Buy/Sell trade works end-to-end on mainnet with $0.2\%$ fee displayed.
+- [x] Standard Payment/Transfer works end-to-end on mainnet.
 - [ ] Creating a Task Bet, verifying with the Gemini AI Oracle, and growing a tree in the Forest works smoothly.
 - [ ] Clicking "Simulate Deadline Expired" spins the Consequence Roulette and executes a real Gateway Trade (into the Time-Locked Vault) or a real Gateway Payment (to the Charity/Partner wallet) in front of the judge.

@@ -7,7 +7,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test:step1": "tsx src/test-step1.ts"
+    "test:step1": "tsx src/test-step1.ts",
+    "test:step2": "tsx src/test-step2.ts"
   },
   "dependencies": {
     "@turnkey/api-key-stamper": "^0.6.1",
