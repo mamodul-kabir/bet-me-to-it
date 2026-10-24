@@ -142,8 +142,7 @@ sequenceDiagram
 bet-me-to-it/
 ├── truemarkets-org-api.json          # True Markets ECDSA P-256 Org API credentials
 ├── test-signer-key.json              # Turnkey secp256k1 payload signer key
-├── requirements.md                   # Hackathon specification & criteria checklist
-├── PLAN.md                           # Detailed 5-step architecture & execution plan
+├── .env.example                      # Template environment configuration
 ├── package.json                      # Monorepo pnpm workspace definition
 │
 ├── server/                           # ───── BACKEND SERVER ─────
@@ -269,3 +268,4 @@ When evaluating `bet-me-to-it`, follow this sequence in the web UI:
 ## 🛡️ License
 
 This project is built for the **NYU Shipyard Fintech Builder Track** and is distributed under the **MIT License**.
+

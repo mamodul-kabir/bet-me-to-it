@@ -1,14 +1,73 @@
-# .gitignore
-*.json
-!package.json
-!tsconfig.json
+# ==============================================================================
+# .gitignore — bet-me-to-it
+# Strict security rules preventing sensitive keys, secrets, & AI prompt files
+# from being committed or pushed to GitHub.
+# ==============================================================================
+
+# 1. Environment Variables & Secrets
 .env
-node_modules/
-dist/
-.pnpm-store/
+.env.*
+!.env.example
+*.env
+
+# 2. True Markets & Turnkey API Credentials / Private Keys
+truemarkets-org-api.json
+test-signer-key.json
+*.pem
+*.key
+*.cert
+*.id
+*credential*
+*secret*
+*api-key*.json
+*signer-key*.json
+
+# 3. AI Prompts, Instructions, Requirements & Task Specs
+requirements.md
+PLAN.md
+*.prompt
+*.prompt.md
+prompts/
+prompt/
+
+# 4. AI Tooling, Workspace Caches & System Logs
+.gemini/
+.antigravity/
+.system_generated/
+.cursor/
+.cursorrules
+.copilot/
+scratch/
+*.scratch
+
+# 5. Database & Local Storage
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
 data/
+server/data/
+
+# 6. Dependencies & Lockfiles
 node_modules/
-dist/
 .pnpm-store/
-data/
-.env
+package-lock.json
+
+# 7. Build Outputs
+dist/
+build/
+.output/
+*.tsbuildinfo
+
+# 8. Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# 9. Operating System & Editor Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
