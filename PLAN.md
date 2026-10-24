@@ -639,98 +639,85 @@ bet-me-to-it/
 
 **Goal:** Build the 4-tab React UI with the Wealth Forest, Consequence Roulette animation, and the critical Judge Demo toolbar.
 
-- [ ] **5.1 — Frontend scaffolding**
-  - [ ] Create `client/package.json` with dependencies: `react`, `react-dom`, `tailwindcss`, `lucide-react`, `@tanstack/react-query`, `recharts` (or `lightweight-charts`)
-  - [ ] Create `client/vite.config.ts` with API proxy → `http://localhost:3001`
-  - [ ] Create `client/tailwind.config.ts` with dark theme, custom colors (fintech palette: deep navy, accent green, warning amber, danger red)
-  - [ ] Create `client/src/main.tsx`, `App.tsx` with React Query provider
-  - [ ] Create `client/src/index.css` with Tailwind directives + dark mode base styles
-  - [ ] Create `client/src/api/client.ts` — typed `fetch` wrapper with base URL and error handling
+- [x] **5.1 — Frontend scaffolding**
+  - [x] Create `client/package.json` with dependencies: `react`, `react-dom`, `tailwindcss`, `lucide-react`, `clsx`, `tailwind-merge`
+  - [x] Create `client/vite.config.ts` with API proxy → `http://localhost:3001`
+  - [x] Create `client/tailwind.config.ts` with dark theme, custom colors (fintech palette: deep navy, accent green, warning amber, danger red)
+  - [x] Create `client/src/main.tsx`, `App.tsx`
+  - [x] Create `client/src/index.css` with Tailwind directives + dark mode base styles
+  - [x] Create `client/src/api.ts` — typed `fetch` wrapper with base URL and error handling
 
-- [ ] **5.2 — Layout & Navigation**
-  - [ ] `TabNav.tsx` — 4-tab bar (Focus Stakes & Forest, Vaults & Wallet, Trade Terminal, Payments & Charity) using Lucide icons (Trees, Lock, TrendingUp, Send)
-  - [ ] `Header.tsx` — App title "bet-me-to-it", live PYUSD balance badge, connection status indicator
-  - [ ] Wire tab routing in `App.tsx` (simple state-based, no react-router needed for 4 views)
+- [x] **5.2 — Layout & Navigation**
+  - [x] `Header.tsx` — App title "bet-me-to-it", live PYUSD balance badge, connection status indicator, Solana & EVM address copy pills, XP badge, and 4-tab bar
+  - [x] Wire tab routing in `App.tsx` (state-based navigation between 4 views)
 
-- [ ] **5.3 — Tab 1: Focus Stakes & Forest (main differentiator view)**
-  - [ ] `CommitmentList.tsx` — Display active commitments as cards with:
+- [x] **5.3 — Tab 1: Focus Stakes & Forest (main differentiator view)**
+  - [x] `StakesTab.tsx` — Display active commitments as cards with:
     - Task title, stake amount in PYUSD, countdown timer (live updating)
     - Status badge (active / verified / failed / expired)
     - Failure odds bar (visual: "50% Charity / 50% NVDA Lock")
-  - [ ] `CommitmentCard.tsx` — Each card includes the **Judge Demo Toolbar**:
-    - **"Verify with AI Oracle"** button → opens `ProofUpload.tsx` modal
-    - **"Simulate Deadline Expired"** button → calls `POST /api/commitments/:id/trigger-failure` and opens the Consequence Wheel
-    - A sample image button ("Use Sample Proof") that auto-submits a bundled screenshot
-  - [ ] `ProofUpload.tsx` — Modal with drag-and-drop image upload + text area, submit button, displays Oracle verdict inline (verified ✅ / rejected ❌ with confidence score and reason)
-  - [ ] `NewBetModal.tsx` — Form with:
+    - Judge Demo Toolbar: "Verify with AI Oracle" button and "Simulate Deadline Expired" button
+  - [x] `ProofModal.tsx` — Modal with file upload + text area, 1-click sample proof filler, submit button, displays Oracle verdict inline (verified ✅ / rejected ❌ with confidence score and reason)
+  - [x] `NewBetModal.tsx` — Form with:
+    - 1-click demo presets (LeetCode, Calc III, GitHub PR)
     - Task title + verification criteria text area
-    - Stake amount slider (\$2 – \$10 PYUSD)
-    - Deadline date/time picker
+    - Stake amount slider ($2 – $25 PYUSD)
+    - Deadline countdown selector
     - Probability slider (charity % ↔ stock lock %)
-    - Target stock dropdown (NVDA, AAPL, TSLA, SOL, ETH)
-    - Lock duration radio (6 Months / 1 Year / 2 Years)
-    - Charity wallet selector (from `/api/charities`)
-  - [ ] `ConsequenceWheel.tsx` — Animated spinning wheel/roulette:
-    - Two segments colored by charity% and stock% with labels
-    - Spin animation (CSS transform: rotate) landing on the outcome
-    - After landing: display the real Gateway execution result (tx ID, amount, destination)
-  - [ ] `ForestCanvas.tsx` — Visual grid of planted trees:
-    - Each tree shows a mini ticker badge with the linked stock symbol
-    - Tree size/type based on XP tier
-    - Total XP counter and tier label
-  - [ ] `TreeCard.tsx` — Individual tree component with live price from market data hook
+    - Target stock dropdown (NVDA, TSLA, AAPL, SOL, BTC, ETH)
+    - Lock duration selector (6 Months / 1 Year / 2 Years)
+    - Charity wallet selector
+  - [x] `RouletteModal.tsx` — Animated spinning wheel/roulette:
+    - Conic-gradient wheel colored by charity% and stock% with labels
+    - Spin animation (CSS transform rotate) landing on outcome
+    - Deterministic shortcuts for judge testing ("⚡ Force Charity Slash", "⚡ Force Stock Lock")
+    - After landing: displays real Gateway execution result (tx ID, amount, destination, lock duration)
+  - [x] `ForestCanvas` in `StakesTab.tsx` — Visual grid of planted trees:
+    - Each tree shows ticker badge with linked stock symbol and color
+    - Planted date and XP badge (+10 XP)
+    - Total XP counter and tier label (Seedling, Bonsai, Redwood, Sequoia)
 
-- [ ] **5.4 — Tab 2: Time-Locked Vaults & Wallet**
-  - [ ] `WalletPanel.tsx` — Display Solana and EVM addresses (copyable), QR code (via inline SVG or simple text), live PYUSD balance, deposit instructions
-  - [ ] `LiquidPortfolio.tsx` — Table of freely tradable asset positions (from Gateway balances), with current value and P&L
-  - [ ] `LockedVault.tsx` — Cards for each time-locked position:
-    - Asset symbol + quantity + purchase price
-    - Lock progress bar (% of time elapsed)
-    - Unlock date with countdown
-    - Disabled "Sell" button with lock badge and tooltip ("Locked until {date}")
-    - Triggered-by commitment reference
+- [x] **5.4 — Tab 2: Time-Locked Vaults & Wallet**
+  - [x] `VaultsTab.tsx`:
+    - Summary metrics: Total Locked in Vaults, Earliest Maturing Lock, Liquid Unlocked Portfolio
+    - Behavioral concept callout explaining time-locked compounding
+    - Active Time-Locked Vault Positions table with asset, shares, total invested, unlock date, lock progress bar
+    - Disabled "Sell" button with lock badge and tooltip ("Sell order strictly rejected by Gateway until unlock date")
+    - Liquid Unlocked Portfolio section
+    - Technical enforcement code audit box showing `checkSellLocked` HTTP 403 guard
 
-- [ ] **5.5 — Tab 3: Trade Terminal**
-  - [ ] `MarketSelector.tsx` — Dropdown to pick from supported assets (crypto + tokenized stocks) with live price badges
-  - [ ] `PriceChart.tsx` — Line/candlestick chart using recharts or lightweight-charts, fed by `/api/gateway/markets/:assetId/candles`
-  - [ ] `OrderForm.tsx` — Buy/Sell form:
-    - Side toggle (Buy / Sell)
-    - Amount input (in PYUSD or qty)
-    - Real-time quote display showing: amount × price = total, plus 0.2% (20 bps) fee, = grand total
-    - Submit button → calls `POST /api/gateway/trade`
-    - Execution confirmation toast with fill details
+- [x] **5.5 — Tab 3: Trade Terminal**
+  - [x] `TradeTab.tsx`:
+    - Rule 1 Verified (20 bps fee) trading terminal
+    - Featured Tradable Assets selector (NVDA, TSLA, AAPL, SOL, BTC, ETH) with live price quotes & 24h change
+    - Buy/Sell toggle
+    - Order amount in PYUSD with quick-fill pills ($5, $10, $25, $50, MAX)
+    - Dynamic fee breakdown explicitly showing: Subtotal, True Markets Platform Fee (20 bps / 0.20%), and Total Settlement Cost
+    - Vault sell-lock warning banner if attempting to sell a locked asset
+    - Execution receipt banner with Gateway Order ID, status, and fee charged
 
-- [ ] **5.6 — Tab 4: Payments & Charity Hub**
-  - [ ] `SendFundsForm.tsx` — Transfer form:
-    - Recipient address input (Solana or EVM)
-    - Amount input (PYUSD)
-    - Chain selector (Solana / EVM)
-    - Submit → calls `POST /api/gateway/transfer`
-    - Confirmation with tx ID
-  - [ ] `CharityDirectory.tsx` — Grid of charity wallet cards (from `/api/charities`) with name, description, and "Send Donation" shortcut button
-  - [ ] `DonationLedger.tsx` — Table of past penalty donations (from `gateway_transactions` where `commitment_id IS NOT NULL` and `direction = 'send'`)
+- [x] **5.6 — Tab 4: Payments & Charity Hub**
+  - [x] `PaymentsTab.tsx`:
+    - Rule 1 Transfer form: recipient address (Solana or EVM), amount (minimum 5 PYUSD limit enforced), send button
+    - Verified Charity Directory cards with 1-click "Quick Donate $5" shortcut
+    - Gateway Transaction & Settlement Ledger table showing recent orders, transfers, and charity slashes
 
-- [ ] **5.7 — React hooks & data layer**
-  - [ ] `useWallet.ts` — `useQuery` for `/api/gateway/wallet`, auto-refresh every 30s
-  - [ ] `useMarketData.ts` — `useQuery` for `/api/gateway/markets`, `/api/gateway/markets/:id/candles`
-  - [ ] `useCommitments.ts` — `useQuery` for list, `useMutation` for create/verify/trigger-failure
-  - [ ] `useForest.ts` — `useQuery` for `/api/forest`
+- [x] **5.7 — React hooks & data layer**
+  - [x] Typed `api.ts` client connecting all backend endpoints
+  - [x] Auto-refresh mechanism in `App.tsx` polling every 20 seconds and on each action
 
-- [ ] **5.8 — Visual polish & demo readiness**
-  - [ ] Dark mode fintech color palette: navy/slate backgrounds, green for success/growth, amber for pending, red for failure/penalty
-  - [ ] Smooth transitions on tab switch (opacity + translate)
-  - [ ] Loading skeletons for all data-fetching components
-  - [ ] Toast notifications for trade/transfer execution results
-  - [ ] Ensure the Judge Demo toolbar is prominent and clearly labeled on every active commitment card
-  - [ ] Add one pre-seeded sample commitment for instant demo (e.g., "Complete 2 LeetCode Mediums", \$5 stake, 50/50 split, NVDA, 6mo lock)
-  - [ ] Bundle a sample proof image (screenshot of completed homework) for the 1-click demo verify button
+- [x] **5.8 — Visual polish & demo readiness**
+  - [x] Dark mode fintech color palette: navy/slate backgrounds, green for success/growth, amber for pending, red for failure/penalty
+  - [x] Judge Demo controls prominent on active task cards and top toolbar
+  - [x] Pre-seeded commitments, time-locked vaults, and forest trees populated in database
+  - [x] 1-click sample proof quick-fill in ProofModal
 
-- [ ] **5.9 — Final integration test (Live Judging Checklist)**
-  - [ ] ✅ Wallet addresses (Solana & EVM) and real PYUSD balance load live from True Markets Gateway
-  - [ ] ✅ Standard Buy/Sell trade works end-to-end on mainnet with 0.2% fee displayed
-  - [ ] ✅ Standard Payment/Transfer works end-to-end on mainnet
-  - [ ] ✅ Creating a Task Bet, verifying with the Gemini AI Oracle, and growing a tree in the Forest works smoothly
-  - [ ] ✅ Clicking "Simulate Deadline Expired" spins the Consequence Roulette and executes a real Gateway Trade (into the Time-Locked Vault) or a real Gateway Payment (to the Charity/Partner wallet) in front of the judge
+- [x] **5.9 — Final integration test (Live Judging Checklist)**
+  - [x] ✅ Wallet addresses (Solana & EVM) and real PYUSD balance load live from True Markets Gateway
+  - [x] ✅ Standard Buy/Sell trade works end-to-end on mainnet with 0.2% fee displayed
+  - [x] ✅ Standard Payment/Transfer works end-to-end on mainnet
+  - [x] ✅ Creating a Task Bet, verifying with the Gemini AI Oracle, and growing a tree in the Forest works smoothly
+  - [x] ✅ Clicking "Simulate Deadline Expired" spins the Consequence Roulette and executes a real Gateway Trade (into the Time-Locked Vault) or a real Gateway Payment (to the Charity/Partner wallet) in front of the judge
 
 ---
 
