@@ -598,51 +598,40 @@ bet-me-to-it/
 
 **Goal:** Build the Consequence Engine that executes real mainnet trades/transfers when a task fails, plus the vault lock system.
 
-- [ ] **4.1 — Consequence Engine (`server/src/services/consequence.ts`)**
-  - [ ] Implement `spinConsequenceWheel(commitment)`:
+- [x] **4.1 — Consequence Engine (`server/src/services/consequence.ts`)**
+  - [x] Implement `spinConsequenceWheel(charityPct, forcedOutcome)`:
     - Generate a cryptographically random number (0–99)
     - If roll < `charity_pct` → outcome = `'charity'`
     - If roll >= `charity_pct` → outcome = `'stock_lock'`
-    - Return `{outcome, roll, charity_pct, stock_pct}` for the frontend animation
+    - Return `{outcome, roll, charity_pct, stock_pct}` for the frontend roulette animation
 
-- [ ] **4.2 — Charity slash execution**
-  - [ ] Implement `executeCharitySlash(commitment)`:
+- [x] **4.2 — Charity slash execution**
+  - [x] Implement `executeCharitySlash(commitment)`:
     - Look up the charity wallet address from `commitment.charity_wallet`
     - Execute Gateway transfer: `POST /v1/gateway/transfers` → sign → execute → send `stake_amount` PYUSD to charity address
     - Log to `gateway_transactions` with `commitment_id` reference
     - Update `commitment.consequence_outcome = 'charity'` and `resolved_at = now()`
-  - [ ] Handle insufficient balance gracefully (return error, don't crash)
+  - [x] Handle insufficient balance or network constraints gracefully with audit logging
 
-- [ ] **4.3 — Forced stock purchase + time-lock execution**
-  - [ ] Implement `executeStockLock(commitment)`:
-    - Execute Gateway buy order: `POST /v1/gateway/orders` with `{asset_id: commitment.target_asset_id, qty: commitment.stake_amount, qty_unit: 'quote', side: 'buy', type: 'market'}` → sign → execute
-    - Extract fill details (qty filled, fill price)
-    - Calculate `lock_until` = now + `lock_duration_months`
-    - Insert into `vault_positions` table with all details
+- [x] **4.3 — Forced stock purchase + time-lock execution**
+  - [x] Implement `executeStockLock(commitment)`:
+    - Execute Gateway buy order: `POST /v1/gateway/orders` with `{asset_id, qty, qty_unit: 'quote', side: 'buy', type: 'market'}` → sign → execute
+    - Calculate `lock_until` = now + `lock_duration_months` (6, 12, or 24 months)
+    - Insert into `vault_positions` table with all details and `is_unlocked = 0`
     - Log to `gateway_transactions` with `commitment_id` reference
     - Update `commitment.consequence_outcome = 'stock_lock'` and `resolved_at = now()`
 
-- [ ] **4.4 — Trigger-failure endpoint**
-  - [ ] `POST /api/commitments/:id/trigger-failure`:
-    - Validate commitment is `active` or `expired` (not already resolved)
-    - Call `spinConsequenceWheel()` to determine outcome
-    - If `'charity'` → call `executeCharitySlash()`
-    - If `'stock_lock'` → call `executeStockLock()`
-    - Update commitment status to `'failed'`
-    - Return full result: `{outcome, roll, execution_details, gateway_tx_id}`
+- [x] **4.4 — Trigger-failure & Judge Demo endpoints**
+  - [x] `POST /api/challenges/simulate-expire` (and `/:id/simulate-expire`) — Judge Demo Trigger to instantly simulate deadline expiration
+  - [x] `POST /api/challenges/settle-failure` (and `/:id/trigger-failure`) — Spins consequence roulette and executes penalty
+  - [x] Return full result: `{outcome, roll, execution_details, gateway_tx_id, vault_position, commitment}`
 
-- [ ] **4.5 — Vault management service (`server/src/services/vault.ts`)**
-  - [ ] `GET /api/vaults` — Return all vault positions for user, partitioned into:
-    - `locked`: positions where `lock_until > now` and `is_unlocked = 0`
-    - `unlocked`: positions where `lock_until <= now` or `is_unlocked = 1`
-    - Include lock progress percentage: `(now - created_at) / (lock_until - created_at) * 100`
-  - [ ] Add sell-lock middleware: before any `POST /api/gateway/trade` with `side: 'sell'`, check if the asset has locked vault positions; if so, reject with lock info
+- [x] **4.5 — Vault management service (`server/src/services/vault.ts`)**
+  - [x] `GET /api/vaults` — Return all vault positions partitioned into `locked` and `unlocked` with `progress_pct`, `days_remaining`, and `total_locked_value`
+  - [x] Sell-lock enforcement: In `POST /api/gateway/trade`, if `side === 'sell'`, check `checkSellLocked()`; reject with HTTP 403 Forbidden if position is locked
 
-- [ ] **4.6 — End-to-end consequence test**
-  - [ ] Create a test commitment with \$2 stake, 50/50 split
-  - [ ] Trigger failure → verify either a real Gateway transfer (charity) or a real Gateway order (stock lock) was executed
-  - [ ] Confirm vault position was created with correct `lock_until` date
-  - [ ] Confirm `gateway_transactions` log has the full audit trail
+- [x] **4.6 — End-to-end consequence test**
+  - [x] Created test suite `server/src/test-step4.ts`: tested Judge Demo expiration trigger, forced NVDA stock lock, sell rejection (HTTP 403), charity slash transfer, and vault positions query
 
 ---
 

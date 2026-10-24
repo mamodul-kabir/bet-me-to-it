@@ -2,6 +2,7 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import { gatewayClient } from '../gateway/client.js';
 import { getDb } from '../db/connection.js';
+import { checkSellLocked } from '../services/vault.js';
 import type { GatewayBalance } from '../gateway/types.js';
 
 export const gatewayRouter = Router();
@@ -191,14 +192,10 @@ gatewayRouter.post('/trade', async (req, res) => {
 
     // Enforce sell lock on time-locked vault positions
     if (side === 'sell') {
-      const lockedPos = db.prepare(`
-        SELECT * FROM vault_positions 
-        WHERE asset_id = ? AND is_unlocked = 0 AND datetime(lock_until) > datetime('now')
-      `).get(asset_id) as any;
-
+      const lockedPos = checkSellLocked(asset_symbol || asset_id, 'admin');
       if (lockedPos) {
         return res.status(403).json({
-          error: `Cannot sell asset: Shares are locked in Time-Locked Vault until ${lockedPos.lock_until}`,
+          error: `Cannot sell ${asset_symbol || 'asset'}: Position is locked in Time-Locked Vault until ${lockedPos.lock_until} (${lockedPos.days_remaining} days remaining)`,
           locked_position: lockedPos,
         });
       }

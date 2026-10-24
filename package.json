@@ -10,7 +10,8 @@
     "build": "pnpm --recursive build",
     "test:step1": "pnpm --filter server test:step1",
     "test:step2": "pnpm --filter server test:step2",
-    "test:step3": "pnpm --filter server test:step3"
+    "test:step3": "pnpm --filter server test:step3",
+    "test:step4": "pnpm --filter server test:step4"
   },
   "devDependencies": {
     "typescript": "^5.7.3"

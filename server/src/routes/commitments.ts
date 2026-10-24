@@ -3,7 +3,8 @@ import crypto from 'node:crypto';
 import multer from 'multer';
 import { getDb } from '../db/connection.js';
 import { verifyTaskProof } from '../services/oracle.js';
-import { plantTree, getForest } from '../services/forest.js';
+import { plantTree } from '../services/forest.js';
+import { settleCommitmentFailure } from '../services/consequence.js';
 
 export const commitmentsRouter = Router();
 
@@ -123,18 +124,19 @@ commitmentsRouter.get('/', (_req, res) => {
          FROM oracle_verdicts v 
          WHERE v.commitment_id = c.id 
          ORDER BY v.created_at DESC LIMIT 1) as latest_verdict,
-        (SELECT t.id FROM forest_trees t WHERE t.commitment_id = c.id) as tree_id
+        (SELECT t.id FROM forest_trees t WHERE t.commitment_id = c.id) as tree_id,
+        (SELECT p.id FROM vault_positions p WHERE p.commitment_id = c.id) as vault_position_id
       FROM commitments c 
       ORDER BY 
         CASE c.status WHEN 'active' THEN 1 WHEN 'expired' THEN 2 ELSE 3 END,
         c.deadline ASC
     `).all();
 
-    // Parse latest_verdict JSON
     const parsed = commitments.map((c: any) => ({
       ...c,
       latest_verdict: c.latest_verdict ? JSON.parse(c.latest_verdict) : null,
       has_tree: !!c.tree_id,
+      has_vault: !!c.vault_position_id,
     }));
 
     res.json({
@@ -147,6 +149,63 @@ commitmentsRouter.get('/', (_req, res) => {
     res.status(500).json({ error: err.message || 'Failed to fetch commitments' });
   }
 });
+
+/**
+ * Judge Demo Trigger: Simulate deadline expired immediately
+ * POST /simulate-expire, POST /:id/simulate-expire
+ */
+commitmentsRouter.post(['/simulate-expire', '/:id/simulate-expire'], (req, res) => {
+  try {
+    const commitmentId = req.params.id || req.body.commitment_id || req.body.challenge_id;
+    if (!commitmentId) {
+      return res.status(400).json({ error: 'commitment_id is required' });
+    }
+
+    const db = getDb();
+    const pastDate = new Date(Date.now() - 60 * 1000).toISOString();
+
+    db.prepare(`
+      UPDATE commitments 
+      SET status = 'expired', deadline = ? 
+      WHERE id = ? AND status = 'active'
+    `).run(pastDate, commitmentId);
+
+    const updated = db.prepare('SELECT * FROM commitments WHERE id = ?').get(commitmentId);
+
+    res.json({
+      success: true,
+      message: 'Deadline simulated as expired for Judge Demo',
+      commitment: updated,
+    });
+  } catch (err: any) {
+    console.error('Error simulating deadline expiration:', err);
+    res.status(500).json({ error: err.message || 'Failed to simulate expiration' });
+  }
+});
+
+/**
+ * Failure Settlement Engine: Consequence Roulette & Mainnet Execution
+ * POST /settle-failure, POST /:id/settle-failure, POST /trigger-failure, POST /:id/trigger-failure
+ */
+commitmentsRouter.post(
+  ['/settle-failure', '/:id/settle-failure', '/trigger-failure', '/:id/trigger-failure'],
+  async (req, res) => {
+    try {
+      const commitmentId = req.params.id || req.body.commitment_id || req.body.challenge_id;
+      const forcedOutcome = req.body.forced_outcome as 'charity' | 'stock_lock' | undefined;
+
+      if (!commitmentId) {
+        return res.status(400).json({ error: 'commitment_id or challenge_id is required' });
+      }
+
+      const result = await settleCommitmentFailure(commitmentId, forcedOutcome);
+      res.json(result);
+    } catch (err: any) {
+      console.error('Error settling commitment failure:', err);
+      res.status(500).json({ error: err.message || 'Failure settlement execution failed' });
+    }
+  }
+);
 
 /**
  * GET /:id
@@ -162,6 +221,7 @@ commitmentsRouter.get('/:id', (req, res) => {
 
     const verdicts = db.prepare('SELECT * FROM oracle_verdicts WHERE commitment_id = ? ORDER BY created_at DESC').all(req.params.id);
     const tree = db.prepare('SELECT * FROM forest_trees WHERE commitment_id = ?').get(req.params.id);
+    const vaultPosition = db.prepare('SELECT * FROM vault_positions WHERE commitment_id = ?').get(req.params.id);
 
     res.json({
       success: true,
@@ -169,6 +229,7 @@ commitmentsRouter.get('/:id', (req, res) => {
         ...commitment,
         verdicts,
         tree: tree || null,
+        vault_position: vaultPosition || null,
       },
     });
   } catch (err: any) {
@@ -179,7 +240,7 @@ commitmentsRouter.get('/:id', (req, res) => {
 
 /**
  * POST /:id/verify OR POST /verify
- * Submit proof (multimodal image or text) to Gemini AI Oracle validator
+ * Submit proof to Gemini AI Oracle validator
  */
 commitmentsRouter.post(['/verify', '/:id/verify'], upload.single('image'), async (req, res) => {
   try {
@@ -245,4 +306,3 @@ commitmentsRouter.post(['/verify', '/:id/verify'], upload.single('image'), async
     res.status(500).json({ error: err.message || 'Proof verification failed' });
   }
 });
-

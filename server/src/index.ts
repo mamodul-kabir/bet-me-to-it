@@ -6,6 +6,7 @@ import { gatewayRouter } from './routes/gateway.js';
 import { charitiesRouter } from './routes/charities.js';
 import { commitmentsRouter, checkExpiredCommitments } from './routes/commitments.js';
 import { forestRouter } from './routes/forest.js';
+import { vaultsRouter } from './routes/vaults.js';
 
 export const app = express();
 
@@ -36,6 +37,7 @@ app.use('/api/charities', charitiesRouter);
 app.use('/api/commitments', commitmentsRouter);
 app.use('/api/challenges', commitmentsRouter); // alias for challenge endpoints
 app.use('/api/forest', forestRouter);
+app.use('/api/vaults', vaultsRouter);
 
 // Health check endpoint
 app.get('/health', (_req, res) => {
