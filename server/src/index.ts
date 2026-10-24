@@ -4,23 +4,38 @@ import { config } from './config/env.js';
 import { migrate } from './db/migrate.js';
 import { gatewayRouter } from './routes/gateway.js';
 import { charitiesRouter } from './routes/charities.js';
+import { commitmentsRouter, checkExpiredCommitments } from './routes/commitments.js';
+import { forestRouter } from './routes/forest.js';
 
 export const app = express();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
 // Initialize SQLite database schema & seeds on startup
 try {
   migrate();
+  checkExpiredCommitments();
   console.log('[bet-me-to-it] Database migrations completed.');
 } catch (err) {
   console.error('[bet-me-to-it] Failed to run database migrations:', err);
 }
 
+// Background timer to check for expired commitments every 60 seconds
+setInterval(() => {
+  const expiredCount = checkExpiredCommitments();
+  if (expiredCount > 0) {
+    console.log(`[bet-me-to-it] Auto-expired ${expiredCount} overdue task commitment(s).`);
+  }
+}, 60 * 1000);
+
 // Mount routes
 app.use('/api/gateway', gatewayRouter);
 app.use('/api/charities', charitiesRouter);
+app.use('/api/commitments', commitmentsRouter);
+app.use('/api/challenges', commitmentsRouter); // alias for challenge endpoints
+app.use('/api/forest', forestRouter);
 
 // Health check endpoint
 app.get('/health', (_req, res) => {

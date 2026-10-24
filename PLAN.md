@@ -553,44 +553,44 @@ bet-me-to-it/
 
 **Goal:** Build the core differentiator — commitment creation, Gemini-powered proof verification, and the forest/XP system.
 
-- [ ] **3.1 — Commitment CRUD**
-  - [ ] `POST /api/commitments/create` — Validate input (title, criteria, stake 2–10 PYUSD, deadline, charity_pct/stock_pct summing to 100, target asset, lock months, charity wallet), insert into `commitments` table, return created commitment
-  - [ ] `GET /api/commitments` — List all commitments for user, ordered by deadline (active first)
-  - [ ] `GET /api/commitments/:id` — Get single commitment with associated oracle verdicts
+- [x] **3.1 — Commitment CRUD**
+  - [x] `POST /api/commitments/create` (and `/api/challenges/create`) — Validate input (title, criteria, stake 2–10 PYUSD, deadline, charity_pct/stock_pct summing to 100, target asset, lock months, charity wallet), insert into `commitments` table, return created commitment
+  - [x] `GET /api/commitments` (and `/api/challenges`) — List all commitments for user, ordered by deadline (active first)
+  - [x] `GET /api/commitments/:id` (and `/api/challenges/:id`) — Get single commitment with associated oracle verdicts
 
-- [ ] **3.2 — AI Proof-of-Task Oracle (`server/src/services/oracle.ts`)**
-  - [ ] Initialize `@google/genai` client with Gemini API key
-  - [ ] Implement `verifyProof(commitment, proofImage?, proofText?)`:
-    - Build system prompt: "You are an impartial Blockchain-style Oracle. Evaluate whether the submitted proof demonstrates completion of the given task."
-    - Attach proof image (base64) and/or text to the multimodal request
-    - Include the task title and verification criteria in the prompt
-    - Request structured JSON output: `{verified: boolean, confidence: number, verdict_reason: string}`
+- [x] **3.2 — AI Proof-of-Task Oracle (`server/src/services/oracle.ts`)**
+  - [x] Initialize `@google/genai` client with Gemini API key
+  - [x] Implement `verifyTaskProof(params)`:
+    - Build system prompt: "You are an impartial, strict Blockchain Proof-of-Task Oracle for the 'bet-me-to-it' platform..."
+    - Attach proof image (base64/buffer) and/or text to multimodal request
+    - Include task title and verification criteria in the prompt
+    - Request structured JSON output: `{verified: boolean, confidence: number, reasoning: string}`
     - Parse and validate the response
-  - [ ] Store every verdict in `oracle_verdicts` table (full audit trail)
-  - [ ] Return the structured verdict to the caller
+  - [x] Store every verdict in `oracle_verdicts` table (full audit trail)
+  - [x] Return the structured verdict to caller
 
-- [ ] **3.3 — Verification endpoint**
-  - [ ] `POST /api/commitments/:id/verify` — Accept multipart form data (image file upload) or JSON (text proof)
-  - [ ] Call `oracle.verifyProof()` with the commitment details and submitted proof
-  - [ ] If `verified === true` and `confidence >= 0.6`:
-    - Update commitment `status` → `'verified'`
+- [x] **3.3 — Verification endpoint**
+  - [x] `POST /api/challenges/verify` (and `/api/commitments/:id/verify`) — Accept multipart form data (image upload) or JSON (text proof / base64 image)
+  - [x] Call `oracle.verifyTaskProof()` with commitment details and submitted proof
+  - [x] If `verified === true` and `confidence >= 0.6`:
+    - Update commitment `status` → `'verified'` and `resolved_at = datetime('now')`
     - Call `forest.plantTree()` (§3.4)
-  - [ ] If `verified === false` or `confidence < 0.6`:
-    - Return verdict with rejection reason (do NOT auto-trigger failure — user can re-submit or accept)
-  - [ ] Return the full oracle verdict to frontend
+  - [x] If `verified === false` or `confidence < 0.6`:
+    - Return verdict with rejection reason without auto-triggering penalty (allows retry)
+  - [x] Return the full oracle verdict to frontend
 
-- [ ] **3.4 — Forest & XP service (`server/src/services/forest.ts`)**
-  - [ ] Implement `plantTree(userId, commitmentId, tickerSymbol)`:
+- [x] **3.4 — Forest & XP service (`server/src/services/forest.ts`)**
+  - [x] Implement `plantTree(userId, commitmentId, tickerSymbol)`:
     - Insert new tree into `forest_trees` table
     - Increment `forest_xp` on `users` table by +10 XP
     - Choose tree type based on XP tier (oak → pine → sakura → sequoia)
-  - [ ] `GET /api/forest` — Return all trees for user with their linked ticker symbols, plus total XP and XP tier
-  - [ ] Define XP tiers: Seedling (0–30), Sapling (31–100), Grove (101–300), Forest (301+)
+  - [x] `GET /api/forest` — Return all trees for user with their linked ticker symbols, plus total XP and XP tier
+  - [x] Define XP tiers: Sprouting Seedling (0–30), Growing Sapling (31–100), Thriving Grove (101–300), Ancient Forest (301+)
 
-- [ ] **3.5 — Deadline expiration check**
-  - [ ] On server startup and every 60 seconds: query `commitments` where `status = 'active'` and `deadline < now()`
-  - [ ] Update matched commitments to `status = 'expired'`
-  - [ ] Note: expired commitments await manual `trigger-failure` from the UI (no auto-execution — critical for judge demo control)
+- [x] **3.5 — Deadline expiration check**
+  - [x] On server startup and every 60 seconds: query `commitments` where `status = 'active'` and `deadline < now()`
+  - [x] Update matched commitments to `status = 'expired'`
+  - [x] Note: expired commitments await manual `trigger-failure` from the UI (no auto-execution — critical for judge demo control)
 
 ---
 
