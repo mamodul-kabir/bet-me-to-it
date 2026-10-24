@@ -1,0 +1,804 @@
+# PLAN.md — bet-me-to-it System Architecture & Implementation Plan
+
+> **Track:** NYU Shipyard – Fintech Builder Track (True Markets Gateway)
+> **Target:** Production MVP with Live Mainnet Execution for 4:15 PM Judging
+
+---
+
+## Table of Contents
+
+1. [System Architecture Overview](#1-system-architecture-overview)
+2. [Database Schema](#2-database-schema)
+3. [File & Directory Structure](#3-file--directory-structure)
+4. [API Route Map](#4-api-route-map)
+5. [Implementation Plan (5 Steps)](#5-implementation-plan-5-steps)
+
+---
+
+## 1. System Architecture Overview
+
+### High-Level Diagram
+
+```mermaid
+flowchart TD
+    subgraph Frontend["Frontend — React + Vite + Tailwind"]
+        UI_Forest["Focus Stakes & Forest View"]
+        UI_Vaults["Time-Locked Vaults & Wallet View"]
+        UI_Trade["Trade Terminal View"]
+        UI_Pay["Payments & Charity Hub View"]
+    end
+
+    subgraph Backend["Backend — Node.js / Express API Server"]
+        AuthMW["Auth Middleware"]
+        GW_Auth["Gateway Auth Client"]
+        GW_Signer["Payload Signer Client"]
+        Routes_GW["Gateway Routes (wallet, market, trade, transfer)"]
+        Routes_Commit["Commitment Routes (create, verify, trigger-failure)"]
+        AI_Oracle["AI Proof-of-Task Oracle (Gemini 2.5 Flash)"]
+        Consequence["Consequence Engine"]
+    end
+
+    subgraph External["External Services"]
+        TM_API["True Markets Gateway API\nhttps://api.truemarkets.co/v1"]
+        Gemini["Google Gemini API\ngemini-2.5-flash"]
+    end
+
+    subgraph Storage["Local Storage — SQLite"]
+        DB[(SQLite Database)]
+    end
+
+    Frontend -->|HTTP/JSON| Backend
+    GW_Auth -->|ECDSA P-256 JWT| TM_API
+    GW_Signer -->|secp256k1 payload co-sign| TM_API
+    Routes_GW --> GW_Auth
+    Routes_GW --> GW_Signer
+    Routes_Commit --> AI_Oracle
+    Routes_Commit --> Consequence
+    AI_Oracle -->|Multimodal verification| Gemini
+    Consequence --> Routes_GW
+    Backend --> DB
+```
+
+### Tech Stack
+
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| **Frontend** | React 18 + Vite + TypeScript | SPA with 4-tab navigation |
+| **Styling** | Tailwind CSS + Lucide Icons | Dark-mode fintech UI |
+| **Backend** | Node.js + Express + TypeScript | REST API server |
+| **Database** | SQLite via `better-sqlite3` | Persistent local store |
+| **Gateway Auth** | ECDSA P-256 (ES256) via `node:crypto` | JWT token minting from `truemarkets-org-api.json` |
+| **Payload Signing** | secp256k1 via `node:crypto` | Order/transfer co-signing from `test-signer-key.json` |
+| **AI Oracle** | `@google/genai` SDK | Gemini 2.5 Flash multimodal verification |
+| **HTTP Client** | `node-fetch` or native `fetch` | Gateway API calls |
+
+### Authentication Flow (Two-Key Architecture)
+
+```mermaid
+sequenceDiagram
+    participant App as Backend Server
+    participant OrgKey as truemarkets-org-api.json<br/>(ECDSA P-256)
+    participant SignKey as test-signer-key.json<br/>(secp256k1)
+    participant GW as True Markets Gateway
+
+    Note over App,GW: Phase 1 — Organization Auth (every 55 min)
+    App->>OrgKey: Load key_id + private_key (JWK)
+    App->>App: message = "{key_id}.{timestamp}"
+    App->>App: ES256 sign(message) → base64url
+    App->>GW: POST /v1/auth/api-key/token<br/>{key_id, timestamp, signature}
+    GW-->>App: {access_token (JWT, 1hr)}
+
+    Note over App,GW: Phase 2 — User Operations (Reads)
+    App->>GW: GET /v1/gateway/balances<br/>Authorization: Bearer {JWT}<br/>TM-On-Behalf-Of: {user_id}
+    GW-->>App: {balances}
+
+    Note over App,GW: Phase 3 — Financial Execution (Writes)
+    App->>GW: POST /v1/gateway/orders<br/>{asset_id, qty, side, type}
+    GW-->>App: {id, status: "initialized", payloads: [...]}
+    App->>SignKey: Load signer_private_key (hex)
+    App->>App: For each payload: ECDSA sign(payload) → base64url
+    App->>GW: POST /v1/gateway/orders/{id}/execute<br/>{signatures, auth_type: "api_key"}
+    GW-->>App: {status: "executed", fills: [...]}
+```
+
+### Key Design Decisions
+
+1. **Single-user MVP:** We use one pre-provisioned Gateway user (`external_ref_id: "admin"` from `test-signer-key.json`). Multi-user support is a post-MVP stretch.
+2. **Server-side signing only:** Both org auth signing and payload co-signing happen on the backend — no private keys ever reach the frontend.
+3. **Token caching:** The org JWT is cached in memory with a 55-minute TTL (it expires at 60 min); auto-refresh before expiry.
+4. **Optimistic UI with audit trail:** Every Gateway interaction (orders, transfers) is logged to SQLite before and after execution for demo reliability.
+5. **Time-lock enforcement is application-level:** The Gateway doesn't natively enforce sell-locks; our DB records `unlock_date` per position and the backend refuses sell orders on locked lots.
+
+---
+
+## 2. Database Schema
+
+SQLite database: `./data/betme.db`
+
+```sql
+---------------------------------------------------------------
+-- USERS (single admin user for MVP; extensible for multi-user)
+---------------------------------------------------------------
+CREATE TABLE users (
+    id              TEXT PRIMARY KEY DEFAULT 'admin',
+    external_ref_id TEXT NOT NULL DEFAULT 'admin',
+    display_name    TEXT NOT NULL DEFAULT 'Demo User',
+    tm_user_id      TEXT,                              -- True Markets user UUID (populated after first auth)
+    solana_address  TEXT,                               -- Provisioned Solana wallet
+    evm_address     TEXT,                               -- Provisioned EVM wallet
+    forest_xp       INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+---------------------------------------------------------------
+-- COMMITMENTS (Task Bets / Commitment Contracts)
+---------------------------------------------------------------
+CREATE TABLE commitments (
+    id                  TEXT PRIMARY KEY,               -- UUID v4
+    user_id             TEXT NOT NULL REFERENCES users(id),
+    title               TEXT NOT NULL,                  -- "Complete 2 LeetCode Mediums"
+    verification_criteria TEXT NOT NULL,                -- Detailed description for AI Oracle
+    stake_amount        REAL NOT NULL,                  -- PYUSD amount (e.g. 5.00)
+    deadline            TEXT NOT NULL,                  -- ISO 8601 timestamp
+    status              TEXT NOT NULL DEFAULT 'active', -- active | verified | failed | expired
+    -- Failure consequence configuration
+    charity_pct         INTEGER NOT NULL DEFAULT 50,    -- % chance of charity donation (0-100)
+    stock_pct           INTEGER NOT NULL DEFAULT 50,    -- % chance of forced stock buy (0-100)
+    target_asset_id     TEXT NOT NULL,                  -- Gateway asset_id for forced buy (e.g. NVDA)
+    target_asset_symbol TEXT NOT NULL DEFAULT 'NVDA',   -- Display symbol
+    lock_duration_months INTEGER NOT NULL DEFAULT 6,    -- 6, 12, or 24
+    charity_wallet      TEXT NOT NULL,                  -- Destination address for charity slash
+    charity_name        TEXT NOT NULL DEFAULT 'Charity',
+    -- Resolution fields
+    consequence_outcome TEXT,                           -- 'charity' | 'stock_lock' | null
+    resolved_at         TEXT,                           -- ISO 8601 timestamp
+    created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+---------------------------------------------------------------
+-- AI ORACLE VERDICTS (audit log for every verification attempt)
+---------------------------------------------------------------
+CREATE TABLE oracle_verdicts (
+    id              TEXT PRIMARY KEY,                   -- UUID v4
+    commitment_id   TEXT NOT NULL REFERENCES commitments(id),
+    proof_type      TEXT NOT NULL,                      -- 'image' | 'text' | 'url'
+    proof_data      TEXT NOT NULL,                      -- Base64 image or text content
+    verified        INTEGER NOT NULL,                   -- 0 or 1 (boolean)
+    confidence      REAL NOT NULL,                      -- 0.0 to 1.0
+    verdict_reason  TEXT NOT NULL,                      -- Gemini explanation
+    raw_response    TEXT,                               -- Full Gemini JSON response
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+---------------------------------------------------------------
+-- FOREST TREES (one per completed commitment)
+---------------------------------------------------------------
+CREATE TABLE forest_trees (
+    id              TEXT PRIMARY KEY,                   -- UUID v4
+    user_id         TEXT NOT NULL REFERENCES users(id),
+    commitment_id   TEXT NOT NULL REFERENCES commitments(id) UNIQUE,
+    ticker_symbol   TEXT NOT NULL,                      -- Linked live stock ticker (e.g. AAPL)
+    tree_type       TEXT NOT NULL DEFAULT 'oak',        -- Visual variant
+    xp_earned       INTEGER NOT NULL DEFAULT 10,
+    planted_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+---------------------------------------------------------------
+-- TIME-LOCKED VAULT POSITIONS (forced stock purchases)
+---------------------------------------------------------------
+CREATE TABLE vault_positions (
+    id              TEXT PRIMARY KEY,                   -- UUID v4
+    user_id         TEXT NOT NULL REFERENCES users(id),
+    commitment_id   TEXT REFERENCES commitments(id),    -- The commitment that triggered this
+    asset_id        TEXT NOT NULL,                      -- Gateway asset_id
+    asset_symbol    TEXT NOT NULL,                      -- Display symbol (NVDA, AAPL)
+    qty             REAL NOT NULL,                      -- Quantity purchased
+    purchase_price  REAL NOT NULL,                      -- Price at time of purchase
+    purchase_total  REAL NOT NULL,                      -- Total cost (qty * price)
+    gateway_order_id TEXT NOT NULL,                     -- True Markets order ID
+    lock_until      TEXT NOT NULL,                      -- ISO 8601 unlock date
+    is_unlocked     INTEGER NOT NULL DEFAULT 0,         -- 0 = locked, 1 = unlocked (sellable)
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+---------------------------------------------------------------
+-- GATEWAY TRANSACTION LOG (audit trail for all mainnet ops)
+---------------------------------------------------------------
+CREATE TABLE gateway_transactions (
+    id              TEXT PRIMARY KEY,                   -- UUID v4
+    user_id         TEXT NOT NULL REFERENCES users(id),
+    tx_type         TEXT NOT NULL,                      -- 'order' | 'transfer'
+    direction       TEXT,                               -- 'buy' | 'sell' | 'send' | 'receive'
+    asset_symbol    TEXT,
+    amount          REAL,
+    gateway_id      TEXT NOT NULL,                      -- True Markets order/transfer ID
+    status          TEXT NOT NULL,                      -- 'pending' | 'executed' | 'failed'
+    raw_request     TEXT,                               -- JSON request body
+    raw_response    TEXT,                               -- JSON response body
+    commitment_id   TEXT REFERENCES commitments(id),    -- If triggered by a commitment penalty
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+---------------------------------------------------------------
+-- CHARITY WALLETS (pre-configured for demo)
+---------------------------------------------------------------
+CREATE TABLE charity_wallets (
+    id              TEXT PRIMARY KEY,                   -- UUID v4
+    name            TEXT NOT NULL,                      -- "Save the Children"
+    wallet_address  TEXT NOT NULL,                      -- Solana or EVM address
+    chain           TEXT NOT NULL DEFAULT 'solana',     -- 'solana' | 'evm'
+    description     TEXT,
+    logo_url        TEXT,
+    is_active       INTEGER NOT NULL DEFAULT 1
+);
+```
+
+### ER Diagram
+
+```mermaid
+erDiagram
+    users ||--o{ commitments : creates
+    users ||--o{ forest_trees : grows
+    users ||--o{ vault_positions : holds
+    users ||--o{ gateway_transactions : executes
+
+    commitments ||--o{ oracle_verdicts : verified_by
+    commitments ||--o| forest_trees : earns
+    commitments ||--o| vault_positions : triggers
+
+    commitments {
+        text id PK
+        text user_id FK
+        text title
+        real stake_amount
+        text deadline
+        text status
+        int charity_pct
+        int stock_pct
+        text target_asset_id
+        int lock_duration_months
+        text charity_wallet
+        text consequence_outcome
+    }
+
+    oracle_verdicts {
+        text id PK
+        text commitment_id FK
+        text proof_type
+        int verified
+        real confidence
+        text verdict_reason
+    }
+
+    forest_trees {
+        text id PK
+        text user_id FK
+        text commitment_id FK
+        text ticker_symbol
+        int xp_earned
+    }
+
+    vault_positions {
+        text id PK
+        text user_id FK
+        text commitment_id FK
+        text asset_symbol
+        real qty
+        text lock_until
+        int is_unlocked
+    }
+
+    gateway_transactions {
+        text id PK
+        text user_id FK
+        text tx_type
+        text gateway_id
+        text status
+    }
+
+    charity_wallets {
+        text id PK
+        text name
+        text wallet_address
+    }
+```
+
+---
+
+## 3. File & Directory Structure
+
+```
+bet-me-to-it/
+├── .env                              # TRUE_MARKETS_ORG_KEY_FILE, TRUE_MARKETS_SIGNER_KEY_FILE, GEMINI_API_KEY
+├── .gitignore
+├── truemarkets-org-api.json          # ECDSA P-256 org key (git-ignored)
+├── test-signer-key.json              # secp256k1 signer key (git-ignored)
+├── requirements.md                   # Project specification
+├── PLAN.md                           # This file
+├── package.json                      # Root workspace config (monorepo)
+├── tsconfig.json                     # Root TS config
+│
+├── server/                           # ──── BACKEND ────
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── src/
+│   │   ├── index.ts                  # Express app entry, middleware, CORS, port binding
+│   │   │
+│   │   ├── config/
+│   │   │   └── env.ts                # dotenv loader, typed env vars
+│   │   │
+│   │   ├── db/
+│   │   │   ├── connection.ts         # better-sqlite3 init + WAL mode
+│   │   │   ├── migrate.ts            # Auto-run schema migrations on startup
+│   │   │   └── schema.sql            # Full CREATE TABLE statements (from §2)
+│   │   │
+│   │   ├── gateway/                  # True Markets Gateway integration layer
+│   │   │   ├── auth.ts               # Org JWT minting (ES256 from org key JWK), token caching
+│   │   │   ├── signer.ts             # Payload co-signing (secp256k1 from signer hex key)
+│   │   │   ├── client.ts             # Typed HTTP client wrapping Gateway REST endpoints
+│   │   │   └── types.ts              # TypeScript interfaces for Gateway request/response shapes
+│   │   │
+│   │   ├── routes/
+│   │   │   ├── gateway.ts            # /api/gateway/* — auth, wallet, markets, trade, transfer
+│   │   │   └── commitments.ts        # /api/commitments/* — create, verify, trigger-failure
+│   │   │
+│   │   ├── services/
+│   │   │   ├── oracle.ts             # Gemini AI Oracle — multimodal proof verification
+│   │   │   ├── consequence.ts        # Probabilistic Consequence Engine — roulette + execution
+│   │   │   ├── forest.ts             # Forest XP + tree planting logic
+│   │   │   └── vault.ts              # Time-locked vault management (lock check, unlock cron)
+│   │   │
+│   │   └── utils/
+│   │       ├── crypto.ts             # Shared crypto helpers (sign, base64url encode)
+│   │       └── uuid.ts               # UUID v4 generator wrapper
+│   │
+│   └── data/
+│       └── betme.db                  # SQLite database file (auto-created)
+│
+├── client/                           # ──── FRONTEND ────
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── vite.config.ts                # Vite config with API proxy to server
+│   ├── tailwind.config.ts
+│   ├── postcss.config.js
+│   ├── index.html
+│   │
+│   └── src/
+│       ├── main.tsx                  # React DOM entry
+│       ├── App.tsx                   # Root app with tab router
+│       ├── index.css                 # Tailwind base + dark theme variables
+│       │
+│       ├── api/
+│       │   └── client.ts             # fetch wrapper for backend API calls
+│       │
+│       ├── components/
+│       │   ├── layout/
+│       │   │   ├── TabNav.tsx         # 4-tab bottom/top navigation bar
+│       │   │   └── Header.tsx         # App header with balance display
+│       │   │
+│       │   ├── forest/
+│       │   │   ├── ForestCanvas.tsx    # Visual grid of wealth trees
+│       │   │   ├── TreeCard.tsx        # Individual tree with live ticker
+│       │   │   └── NewBetModal.tsx     # Create commitment modal form
+│       │   │
+│       │   ├── commitments/
+│       │   │   ├── CommitmentList.tsx  # Active commitment cards with countdowns
+│       │   │   ├── CommitmentCard.tsx  # Single commitment with Judge Demo toolbar
+│       │   │   ├── ProofUpload.tsx     # Image/text proof upload component
+│       │   │   └── ConsequenceWheel.tsx # Animated roulette spinner
+│       │   │
+│       │   ├── vaults/
+│       │   │   ├── WalletPanel.tsx     # Wallet addresses, QR, balances
+│       │   │   ├── LiquidPortfolio.tsx # Freely tradable positions
+│       │   │   └── LockedVault.tsx     # Time-locked positions with progress bar
+│       │   │
+│       │   ├── trading/
+│       │   │   ├── PriceChart.tsx      # Live price chart (lightweight-charts or recharts)
+│       │   │   ├── OrderForm.tsx       # Buy/Sell form with fee breakdown
+│       │   │   └── MarketSelector.tsx  # Asset picker dropdown
+│       │   │
+│       │   └── payments/
+│       │       ├── SendFundsForm.tsx   # Transfer PYUSD to address/user
+│       │       ├── CharityDirectory.tsx # Selectable charity wallets
+│       │       └── DonationLedger.tsx  # Past penalty donation history
+│       │
+│       ├── hooks/
+│       │   ├── useWallet.ts           # Fetch wallet data + balances
+│       │   ├── useMarketData.ts       # Fetch live prices + candles
+│       │   ├── useCommitments.ts      # CRUD for commitments
+│       │   └── useForest.ts           # Fetch forest trees + XP
+│       │
+│       ├── types/
+│       │   └── index.ts              # Shared TypeScript interfaces
+│       │
+│       └── lib/
+│           ├── constants.ts          # Asset lists, charity presets, config
+│           └── format.ts             # Currency, date, countdown formatters
+│
+└── docs/                             # Optional — reference material
+    └── gateway-api-notes.md          # Quick-ref for Gateway endpoints used
+```
+
+---
+
+## 4. API Route Map
+
+### Gateway Routes (`server/src/routes/gateway.ts`)
+
+| Method | Endpoint | Description | Gateway Endpoint |
+|--------|----------|-------------|------------------|
+| `POST` | `/api/gateway/auth` | Mint org JWT, cache token, return user info | `POST /v1/auth/api-key/token` |
+| `GET` | `/api/gateway/wallet` | Fetch user wallet addresses + PYUSD balances | `GET /v1/gateway/balances` |
+| `GET` | `/api/gateway/markets` | List assets with live prices | `GET /v1/gateway/assets` + market data |
+| `GET` | `/api/gateway/markets/:assetId/candles` | Historical price candles for chart | Market data endpoints |
+| `POST` | `/api/gateway/trade` | Create order → sign payloads → execute | `POST /v1/gateway/orders` → `POST /v1/gateway/orders/{id}/execute` |
+| `GET` | `/api/gateway/orders` | List user's order history | `GET /v1/gateway/orders` |
+| `POST` | `/api/gateway/transfer` | Create transfer → sign → execute | `POST /v1/gateway/transfers` → `POST /v1/gateway/transfers/{id}/execute` |
+| `GET` | `/api/gateway/transactions` | Unified transaction feed | `GET /v1/gateway/transactions` |
+
+### Commitment Routes (`server/src/routes/commitments.ts`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/commitments` | List all commitments for user |
+| `POST` | `/api/commitments/create` | Create new task bet |
+| `GET` | `/api/commitments/:id` | Get single commitment detail |
+| `POST` | `/api/commitments/:id/verify` | Upload proof → AI Oracle → verdict |
+| `POST` | `/api/commitments/:id/trigger-failure` | Spin consequence → execute penalty |
+| `GET` | `/api/forest` | Get all trees + total XP |
+| `GET` | `/api/vaults` | Get all time-locked positions |
+| `GET` | `/api/charities` | List charity wallets |
+
+---
+
+## 5. Implementation Plan (5 Steps)
+
+> Steps are strictly ordered. Each step builds on the previous. Complete all sub-tasks in a step before starting the next.
+
+---
+
+### Step 1: True Markets Gateway Auth & Signer Client
+
+**Goal:** Establish authenticated communication with the True Markets Gateway API and build the payload signing utility. This is the foundation — nothing else works without it.
+
+- [ ] **1.1 — Project scaffolding**
+  - [ ] Initialize root `package.json` as a pnpm workspace monorepo
+  - [ ] Create `server/package.json` with dependencies: `express`, `better-sqlite3`, `dotenv`, `uuid`, `cors`
+  - [ ] Create `server/tsconfig.json` with Node 18+ ESM target
+  - [ ] Create `server/src/index.ts` with minimal Express app (health-check route on port 3001)
+  - [ ] Create `server/src/config/env.ts` to load `.env` and export typed config (key file paths, Gemini API key, port)
+
+- [ ] **1.2 — Gateway org authentication (`server/src/gateway/auth.ts`)**
+  - [ ] Load `truemarkets-org-api.json` (P-256 JWK private key + key_id)
+  - [ ] Implement `mintOrgToken()`: construct message `"{key_id}.{timestamp}"`, sign with ES256 (ECDSA P-256 + SHA-256), encode as base64url (no padding)
+  - [ ] Call `POST https://api.truemarkets.co/v1/auth/api-key/token` with `{key_id, timestamp, signature}`
+  - [ ] Cache the returned `access_token` in memory with a 55-minute TTL
+  - [ ] Implement `getOrgToken()` that returns cached token or auto-refreshes
+  - [ ] Add error handling for clock skew (±30s tolerance) and retry logic
+
+- [ ] **1.3 — Payload signer client (`server/src/gateway/signer.ts`)**
+  - [ ] Load `test-signer-key.json` (`signer_private_key` hex string + `external_ref_id`)
+  - [ ] Implement `signPayloads(payloads: string[])`: for each payload, sign with the signer key (ECDSA SHA-256), return base64url-encoded signatures array
+  - [ ] Export `getSignerUserId()` → returns `external_ref_id` for the `TM-On-Behalf-Of` header
+
+- [ ] **1.4 — Gateway HTTP client (`server/src/gateway/client.ts`)**
+  - [ ] Create `GatewayClient` class wrapping `fetch` with:
+    - Auto-injected `Authorization: Bearer {org_token}` header
+    - Auto-injected `TM-On-Behalf-Of: {user_id}` header
+    - Base URL: `https://api.truemarkets.co/v1/gateway`
+    - JSON request/response serialization
+    - Error wrapping with status codes
+  - [ ] Implement helper method `executeWithSignature(path, body)` that: creates resource → receives payloads → signs → executes
+
+- [ ] **1.5 — Gateway types (`server/src/gateway/types.ts`)**
+  - [ ] Define TypeScript interfaces: `GatewayAuthResponse`, `GatewayOrder`, `GatewayTransfer`, `GatewayBalance`, `GatewayAsset`, `GatewayPayload`, `OrderRequest`, `TransferRequest`
+
+- [ ] **1.6 — Integration smoke test**
+  - [ ] Create a temporary test script `server/src/test-auth.ts` that mints a token, fetches balances, and logs the result
+  - [ ] Verify the org token is valid and the signer user's wallets are accessible
+  - [ ] Delete test script after confirmation
+
+---
+
+### Step 2: Core Backend Routes (Wallets, Market Data, Trading, Payments)
+
+**Goal:** Implement all Rule 1 mandatory Gateway endpoints and wire up the SQLite database for transaction logging.
+
+- [ ] **2.1 — Database setup**
+  - [ ] Create `server/src/db/schema.sql` with all CREATE TABLE statements from §2
+  - [ ] Create `server/src/db/connection.ts`: initialize `better-sqlite3`, enable WAL mode, auto-create `data/` dir
+  - [ ] Create `server/src/db/migrate.ts`: read `schema.sql`, execute all statements, seed `charity_wallets` with 3 demo charities and seed `users` with the admin user
+  - [ ] Call `migrate()` on server startup in `index.ts`
+
+- [ ] **2.2 — Wallet & balance route**
+  - [ ] `POST /api/gateway/auth` — Trigger org token mint (or return cached), fetch/store user's TM user ID + wallet addresses in `users` table, return wallet info
+  - [ ] `GET /api/gateway/wallet` — Fetch live balances from Gateway (`GET /v1/gateway/balances`), return formatted response with Solana address, EVM address, PYUSD balance, and all asset balances
+
+- [ ] **2.3 — Market data routes**
+  - [ ] `GET /api/gateway/markets` — Fetch tradable assets list from Gateway, return asset catalog with live prices
+  - [ ] `GET /api/gateway/markets/:assetId/candles` — Fetch historical price candles, return OHLCV data for charting
+
+- [ ] **2.4 — Trading route (buy/sell orders)**
+  - [ ] `POST /api/gateway/trade` — Accept `{asset_id, qty, qty_unit, side, type}` from frontend
+  - [ ] Create order via `POST /v1/gateway/orders`
+  - [ ] Sign returned payloads using `signer.signPayloads()`
+  - [ ] Execute via `POST /v1/gateway/orders/{id}/execute`
+  - [ ] Log the entire lifecycle to `gateway_transactions` table
+  - [ ] Return execution result with fill details and 20 bps fee breakdown
+
+- [ ] **2.5 — Transfer/payment route**
+  - [ ] `POST /api/gateway/transfer` — Accept `{destination_address, amount, asset_id, chain}`
+  - [ ] Create transfer via `POST /v1/gateway/transfers`
+  - [ ] Sign returned payloads using `signer.signPayloads()`
+  - [ ] Execute via `POST /v1/gateway/transfers/{id}/execute`
+  - [ ] Log to `gateway_transactions` table
+  - [ ] Return transfer confirmation
+
+- [ ] **2.6 — Order & transaction history routes**
+  - [ ] `GET /api/gateway/orders` — Fetch paginated order list from Gateway
+  - [ ] `GET /api/gateway/transactions` — Fetch unified transaction feed from Gateway + merge local DB records
+
+- [ ] **2.7 — Charity wallet management**
+  - [ ] `GET /api/charities` — List all active charity wallets from DB
+  - [ ] Seed database with 3 hardcoded demo charities (e.g., Save the Children, Code.org Foundation, Against Malaria Foundation) with real-ish Solana addresses
+
+- [ ] **2.8 — End-to-end backend test**
+  - [ ] Manually test: auth → fetch wallet → fetch markets → place a \$2 PYUSD buy order for NVDA → verify execution in transaction log
+  - [ ] Manually test: auth → send \$1 PYUSD transfer to a known address → verify transfer logged
+
+---
+
+### Step 3: Bet-Me-To-It Task & AI Oracle Engine
+
+**Goal:** Build the core differentiator — commitment creation, Gemini-powered proof verification, and the forest/XP system.
+
+- [ ] **3.1 — Commitment CRUD**
+  - [ ] `POST /api/commitments/create` — Validate input (title, criteria, stake 2–10 PYUSD, deadline, charity_pct/stock_pct summing to 100, target asset, lock months, charity wallet), insert into `commitments` table, return created commitment
+  - [ ] `GET /api/commitments` — List all commitments for user, ordered by deadline (active first)
+  - [ ] `GET /api/commitments/:id` — Get single commitment with associated oracle verdicts
+
+- [ ] **3.2 — AI Proof-of-Task Oracle (`server/src/services/oracle.ts`)**
+  - [ ] Initialize `@google/genai` client with Gemini API key
+  - [ ] Implement `verifyProof(commitment, proofImage?, proofText?)`:
+    - Build system prompt: "You are an impartial Blockchain-style Oracle. Evaluate whether the submitted proof demonstrates completion of the given task."
+    - Attach proof image (base64) and/or text to the multimodal request
+    - Include the task title and verification criteria in the prompt
+    - Request structured JSON output: `{verified: boolean, confidence: number, verdict_reason: string}`
+    - Parse and validate the response
+  - [ ] Store every verdict in `oracle_verdicts` table (full audit trail)
+  - [ ] Return the structured verdict to the caller
+
+- [ ] **3.3 — Verification endpoint**
+  - [ ] `POST /api/commitments/:id/verify` — Accept multipart form data (image file upload) or JSON (text proof)
+  - [ ] Call `oracle.verifyProof()` with the commitment details and submitted proof
+  - [ ] If `verified === true` and `confidence >= 0.6`:
+    - Update commitment `status` → `'verified'`
+    - Call `forest.plantTree()` (§3.4)
+  - [ ] If `verified === false` or `confidence < 0.6`:
+    - Return verdict with rejection reason (do NOT auto-trigger failure — user can re-submit or accept)
+  - [ ] Return the full oracle verdict to frontend
+
+- [ ] **3.4 — Forest & XP service (`server/src/services/forest.ts`)**
+  - [ ] Implement `plantTree(userId, commitmentId, tickerSymbol)`:
+    - Insert new tree into `forest_trees` table
+    - Increment `forest_xp` on `users` table by +10 XP
+    - Choose tree type based on XP tier (oak → pine → sakura → sequoia)
+  - [ ] `GET /api/forest` — Return all trees for user with their linked ticker symbols, plus total XP and XP tier
+  - [ ] Define XP tiers: Seedling (0–30), Sapling (31–100), Grove (101–300), Forest (301+)
+
+- [ ] **3.5 — Deadline expiration check**
+  - [ ] On server startup and every 60 seconds: query `commitments` where `status = 'active'` and `deadline < now()`
+  - [ ] Update matched commitments to `status = 'expired'`
+  - [ ] Note: expired commitments await manual `trigger-failure` from the UI (no auto-execution — critical for judge demo control)
+
+---
+
+### Step 4: Penalty Settlement (Time-Locked Stock Vault & Charity Transfer)
+
+**Goal:** Build the Consequence Engine that executes real mainnet trades/transfers when a task fails, plus the vault lock system.
+
+- [ ] **4.1 — Consequence Engine (`server/src/services/consequence.ts`)**
+  - [ ] Implement `spinConsequenceWheel(commitment)`:
+    - Generate a cryptographically random number (0–99)
+    - If roll < `charity_pct` → outcome = `'charity'`
+    - If roll >= `charity_pct` → outcome = `'stock_lock'`
+    - Return `{outcome, roll, charity_pct, stock_pct}` for the frontend animation
+
+- [ ] **4.2 — Charity slash execution**
+  - [ ] Implement `executeCharitySlash(commitment)`:
+    - Look up the charity wallet address from `commitment.charity_wallet`
+    - Execute Gateway transfer: `POST /v1/gateway/transfers` → sign → execute → send `stake_amount` PYUSD to charity address
+    - Log to `gateway_transactions` with `commitment_id` reference
+    - Update `commitment.consequence_outcome = 'charity'` and `resolved_at = now()`
+  - [ ] Handle insufficient balance gracefully (return error, don't crash)
+
+- [ ] **4.3 — Forced stock purchase + time-lock execution**
+  - [ ] Implement `executeStockLock(commitment)`:
+    - Execute Gateway buy order: `POST /v1/gateway/orders` with `{asset_id: commitment.target_asset_id, qty: commitment.stake_amount, qty_unit: 'quote', side: 'buy', type: 'market'}` → sign → execute
+    - Extract fill details (qty filled, fill price)
+    - Calculate `lock_until` = now + `lock_duration_months`
+    - Insert into `vault_positions` table with all details
+    - Log to `gateway_transactions` with `commitment_id` reference
+    - Update `commitment.consequence_outcome = 'stock_lock'` and `resolved_at = now()`
+
+- [ ] **4.4 — Trigger-failure endpoint**
+  - [ ] `POST /api/commitments/:id/trigger-failure`:
+    - Validate commitment is `active` or `expired` (not already resolved)
+    - Call `spinConsequenceWheel()` to determine outcome
+    - If `'charity'` → call `executeCharitySlash()`
+    - If `'stock_lock'` → call `executeStockLock()`
+    - Update commitment status to `'failed'`
+    - Return full result: `{outcome, roll, execution_details, gateway_tx_id}`
+
+- [ ] **4.5 — Vault management service (`server/src/services/vault.ts`)**
+  - [ ] `GET /api/vaults` — Return all vault positions for user, partitioned into:
+    - `locked`: positions where `lock_until > now` and `is_unlocked = 0`
+    - `unlocked`: positions where `lock_until <= now` or `is_unlocked = 1`
+    - Include lock progress percentage: `(now - created_at) / (lock_until - created_at) * 100`
+  - [ ] Add sell-lock middleware: before any `POST /api/gateway/trade` with `side: 'sell'`, check if the asset has locked vault positions; if so, reject with lock info
+
+- [ ] **4.6 — End-to-end consequence test**
+  - [ ] Create a test commitment with \$2 stake, 50/50 split
+  - [ ] Trigger failure → verify either a real Gateway transfer (charity) or a real Gateway order (stock lock) was executed
+  - [ ] Confirm vault position was created with correct `lock_until` date
+  - [ ] Confirm `gateway_transactions` log has the full audit trail
+
+---
+
+### Step 5: Frontend Dashboard & Judge Demo Mode
+
+**Goal:** Build the 4-tab React UI with the Wealth Forest, Consequence Roulette animation, and the critical Judge Demo toolbar.
+
+- [ ] **5.1 — Frontend scaffolding**
+  - [ ] Create `client/package.json` with dependencies: `react`, `react-dom`, `tailwindcss`, `lucide-react`, `@tanstack/react-query`, `recharts` (or `lightweight-charts`)
+  - [ ] Create `client/vite.config.ts` with API proxy → `http://localhost:3001`
+  - [ ] Create `client/tailwind.config.ts` with dark theme, custom colors (fintech palette: deep navy, accent green, warning amber, danger red)
+  - [ ] Create `client/src/main.tsx`, `App.tsx` with React Query provider
+  - [ ] Create `client/src/index.css` with Tailwind directives + dark mode base styles
+  - [ ] Create `client/src/api/client.ts` — typed `fetch` wrapper with base URL and error handling
+
+- [ ] **5.2 — Layout & Navigation**
+  - [ ] `TabNav.tsx` — 4-tab bar (Focus Stakes & Forest, Vaults & Wallet, Trade Terminal, Payments & Charity) using Lucide icons (Trees, Lock, TrendingUp, Send)
+  - [ ] `Header.tsx` — App title "bet-me-to-it", live PYUSD balance badge, connection status indicator
+  - [ ] Wire tab routing in `App.tsx` (simple state-based, no react-router needed for 4 views)
+
+- [ ] **5.3 — Tab 1: Focus Stakes & Forest (main differentiator view)**
+  - [ ] `CommitmentList.tsx` — Display active commitments as cards with:
+    - Task title, stake amount in PYUSD, countdown timer (live updating)
+    - Status badge (active / verified / failed / expired)
+    - Failure odds bar (visual: "50% Charity / 50% NVDA Lock")
+  - [ ] `CommitmentCard.tsx` — Each card includes the **Judge Demo Toolbar**:
+    - **"Verify with AI Oracle"** button → opens `ProofUpload.tsx` modal
+    - **"Simulate Deadline Expired"** button → calls `POST /api/commitments/:id/trigger-failure` and opens the Consequence Wheel
+    - A sample image button ("Use Sample Proof") that auto-submits a bundled screenshot
+  - [ ] `ProofUpload.tsx` — Modal with drag-and-drop image upload + text area, submit button, displays Oracle verdict inline (verified ✅ / rejected ❌ with confidence score and reason)
+  - [ ] `NewBetModal.tsx` — Form with:
+    - Task title + verification criteria text area
+    - Stake amount slider (\$2 – \$10 PYUSD)
+    - Deadline date/time picker
+    - Probability slider (charity % ↔ stock lock %)
+    - Target stock dropdown (NVDA, AAPL, TSLA, SOL, ETH)
+    - Lock duration radio (6 Months / 1 Year / 2 Years)
+    - Charity wallet selector (from `/api/charities`)
+  - [ ] `ConsequenceWheel.tsx` — Animated spinning wheel/roulette:
+    - Two segments colored by charity% and stock% with labels
+    - Spin animation (CSS transform: rotate) landing on the outcome
+    - After landing: display the real Gateway execution result (tx ID, amount, destination)
+  - [ ] `ForestCanvas.tsx` — Visual grid of planted trees:
+    - Each tree shows a mini ticker badge with the linked stock symbol
+    - Tree size/type based on XP tier
+    - Total XP counter and tier label
+  - [ ] `TreeCard.tsx` — Individual tree component with live price from market data hook
+
+- [ ] **5.4 — Tab 2: Time-Locked Vaults & Wallet**
+  - [ ] `WalletPanel.tsx` — Display Solana and EVM addresses (copyable), QR code (via inline SVG or simple text), live PYUSD balance, deposit instructions
+  - [ ] `LiquidPortfolio.tsx` — Table of freely tradable asset positions (from Gateway balances), with current value and P&L
+  - [ ] `LockedVault.tsx` — Cards for each time-locked position:
+    - Asset symbol + quantity + purchase price
+    - Lock progress bar (% of time elapsed)
+    - Unlock date with countdown
+    - Disabled "Sell" button with lock badge and tooltip ("Locked until {date}")
+    - Triggered-by commitment reference
+
+- [ ] **5.5 — Tab 3: Trade Terminal**
+  - [ ] `MarketSelector.tsx` — Dropdown to pick from supported assets (crypto + tokenized stocks) with live price badges
+  - [ ] `PriceChart.tsx` — Line/candlestick chart using recharts or lightweight-charts, fed by `/api/gateway/markets/:assetId/candles`
+  - [ ] `OrderForm.tsx` — Buy/Sell form:
+    - Side toggle (Buy / Sell)
+    - Amount input (in PYUSD or qty)
+    - Real-time quote display showing: amount × price = total, plus 0.2% (20 bps) fee, = grand total
+    - Submit button → calls `POST /api/gateway/trade`
+    - Execution confirmation toast with fill details
+
+- [ ] **5.6 — Tab 4: Payments & Charity Hub**
+  - [ ] `SendFundsForm.tsx` — Transfer form:
+    - Recipient address input (Solana or EVM)
+    - Amount input (PYUSD)
+    - Chain selector (Solana / EVM)
+    - Submit → calls `POST /api/gateway/transfer`
+    - Confirmation with tx ID
+  - [ ] `CharityDirectory.tsx` — Grid of charity wallet cards (from `/api/charities`) with name, description, and "Send Donation" shortcut button
+  - [ ] `DonationLedger.tsx` — Table of past penalty donations (from `gateway_transactions` where `commitment_id IS NOT NULL` and `direction = 'send'`)
+
+- [ ] **5.7 — React hooks & data layer**
+  - [ ] `useWallet.ts` — `useQuery` for `/api/gateway/wallet`, auto-refresh every 30s
+  - [ ] `useMarketData.ts` — `useQuery` for `/api/gateway/markets`, `/api/gateway/markets/:id/candles`
+  - [ ] `useCommitments.ts` — `useQuery` for list, `useMutation` for create/verify/trigger-failure
+  - [ ] `useForest.ts` — `useQuery` for `/api/forest`
+
+- [ ] **5.8 — Visual polish & demo readiness**
+  - [ ] Dark mode fintech color palette: navy/slate backgrounds, green for success/growth, amber for pending, red for failure/penalty
+  - [ ] Smooth transitions on tab switch (opacity + translate)
+  - [ ] Loading skeletons for all data-fetching components
+  - [ ] Toast notifications for trade/transfer execution results
+  - [ ] Ensure the Judge Demo toolbar is prominent and clearly labeled on every active commitment card
+  - [ ] Add one pre-seeded sample commitment for instant demo (e.g., "Complete 2 LeetCode Mediums", \$5 stake, 50/50 split, NVDA, 6mo lock)
+  - [ ] Bundle a sample proof image (screenshot of completed homework) for the 1-click demo verify button
+
+- [ ] **5.9 — Final integration test (Live Judging Checklist)**
+  - [ ] ✅ Wallet addresses (Solana & EVM) and real PYUSD balance load live from True Markets Gateway
+  - [ ] ✅ Standard Buy/Sell trade works end-to-end on mainnet with 0.2% fee displayed
+  - [ ] ✅ Standard Payment/Transfer works end-to-end on mainnet
+  - [ ] ✅ Creating a Task Bet, verifying with the Gemini AI Oracle, and growing a tree in the Forest works smoothly
+  - [ ] ✅ Clicking "Simulate Deadline Expired" spins the Consequence Roulette and executes a real Gateway Trade (into the Time-Locked Vault) or a real Gateway Payment (to the Charity/Partner wallet) in front of the judge
+
+---
+
+## Appendix A: Environment Variables
+
+```env
+# True Markets Gateway (both files in project root)
+TRUE_MARKETS_ORG_KEY_FILE="./truemarkets-org-api.json"
+TRUE_MARKETS_SIGNER_KEY_FILE="./test-signer-key.json"
+TRUE_MARKETS_BASE_URL="https://api.truemarkets.co"
+
+# Google Gemini AI Oracle
+GEMINI_API_KEY="your-gemini-api-key-here"
+
+# Server
+PORT=3001
+NODE_ENV=development
+
+# Database
+DB_PATH="./data/betme.db"
+```
+
+## Appendix B: Key NPM Packages
+
+### Server (`server/package.json`)
+| Package | Purpose |
+|---------|---------|
+| `express` | HTTP server framework |
+| `cors` | Cross-origin resource sharing |
+| `better-sqlite3` | SQLite driver (synchronous, fast) |
+| `dotenv` | Environment variable loading |
+| `uuid` | UUID v4 generation |
+| `multer` | Multipart file upload (proof images) |
+| `@google/genai` | Gemini AI SDK for oracle |
+| `tsx` | TypeScript execution (dev) |
+| `typescript` | Type checking |
+
+### Client (`client/package.json`)
+| Package | Purpose |
+|---------|---------|
+| `react` + `react-dom` | UI framework |
+| `@tanstack/react-query` | Server state management |
+| `tailwindcss` + `postcss` + `autoprefixer` | Styling |
+| `lucide-react` | Icon library |
+| `recharts` | Price charts |
+| `react-dropzone` | Proof image upload |
+| `typescript` | Type checking |
+| `vite` | Build tool + dev server |
+
+## Appendix C: Pre-Seeded Demo Data
+
+On first startup, the database migration seeds:
+
+1. **Admin user** — `id: 'admin'`, `external_ref_id: 'admin'` (matching `test-signer-key.json`)
+2. **Charity wallets:**
+   - Save the Children — `solana_address_placeholder_1`
+   - Code.org Foundation — `solana_address_placeholder_2`
+   - Against Malaria Foundation — `solana_address_placeholder_3`
+3. **Sample commitment** — "Complete 2 LeetCode Medium problems", \$5 PYUSD stake, deadline in 2 hours, 50% charity / 50% NVDA 6-month lock
+4. **Sample proof image** — Bundled `server/data/sample-proof.png` (screenshot of LeetCode submissions page)
+
