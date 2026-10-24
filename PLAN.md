@@ -461,42 +461,43 @@ bet-me-to-it/
 
 **Goal:** Establish authenticated communication with the True Markets Gateway API and build the payload signing utility. This is the foundation — nothing else works without it.
 
-- [ ] **1.1 — Project scaffolding**
-  - [ ] Initialize root `package.json` as a pnpm workspace monorepo
-  - [ ] Create `server/package.json` with dependencies: `express`, `better-sqlite3`, `dotenv`, `uuid`, `cors`
-  - [ ] Create `server/tsconfig.json` with Node 18+ ESM target
-  - [ ] Create `server/src/index.ts` with minimal Express app (health-check route on port 3001)
-  - [ ] Create `server/src/config/env.ts` to load `.env` and export typed config (key file paths, Gemini API key, port)
+- [x] **1.1 — Project scaffolding**
+  - [x] Initialize root `package.json` as a pnpm workspace monorepo
+  - [x] Create `server/package.json` with dependencies: `express`, `@turnkey/api-key-stamper`, `dotenv`, `uuid`, `cors`
+  - [x] Create `server/tsconfig.json` with Node 18+ ESM target
+  - [x] Create `server/src/index.ts` with minimal Express app (health-check route on port 3001)
+  - [x] Create `server/src/config/env.ts` to load `.env` and export typed config (key file paths, Gemini API key, port)
 
-- [ ] **1.2 — Gateway org authentication (`server/src/gateway/auth.ts`)**
-  - [ ] Load `truemarkets-org-api.json` (P-256 JWK private key + key_id)
-  - [ ] Implement `mintOrgToken()`: construct message `"{key_id}.{timestamp}"`, sign with ES256 (ECDSA P-256 + SHA-256), encode as base64url (no padding)
-  - [ ] Call `POST https://api.truemarkets.co/v1/auth/api-key/token` with `{key_id, timestamp, signature}`
-  - [ ] Cache the returned `access_token` in memory with a 55-minute TTL
-  - [ ] Implement `getOrgToken()` that returns cached token or auto-refreshes
-  - [ ] Add error handling for clock skew (±30s tolerance) and retry logic
+- [x] **1.2 — Gateway org authentication (`server/src/gateway/auth.ts`)**
+  - [x] Load `truemarkets-org-api.json` (P-256 JWK private key + key_id)
+  - [x] Implement `mintOrgToken()`: construct message `"{key_id}.{timestamp}"`, sign with ES256 (ECDSA P-256 + SHA-256), encode as base64url (no padding)
+  - [x] Call `POST https://api.truemarkets.co/v1/auth/api-key/token` with `{key_id, timestamp, signature}`
+  - [x] Cache the returned `access_token` in memory with a 55-minute TTL
+  - [x] Implement `getOrgToken()` that returns cached token or auto-refreshes
+  - [x] Add error handling for clock skew (±30s tolerance) and retry logic
 
-- [ ] **1.3 — Payload signer client (`server/src/gateway/signer.ts`)**
-  - [ ] Load `test-signer-key.json` (`signer_private_key` hex string + `external_ref_id`)
-  - [ ] Implement `signPayloads(payloads: string[])`: for each payload, sign with the signer key (ECDSA SHA-256), return base64url-encoded signatures array
-  - [ ] Export `getSignerUserId()` → returns `external_ref_id` for the `TM-On-Behalf-Of` header
+- [x] **1.3 — Payload signer client (`server/src/gateway/signer.ts`)**
+  - [x] Load `test-signer-key.json` (`signer_private_key` hex string + `external_ref_id`)
+  - [x] Implement `signPayloads(payloads: string[])`: for each payload, sign with the signer key (ECDSA SHA-256 via ApiKeyStamper), return base64url-encoded signatures array
+  - [x] Export `getSignerExternalRefId()` and `getSignerPublicKey()` for user provisioning and `TM-On-Behalf-Of` mapping
 
-- [ ] **1.4 — Gateway HTTP client (`server/src/gateway/client.ts`)**
-  - [ ] Create `GatewayClient` class wrapping `fetch` with:
+- [x] **1.4 — Gateway HTTP client (`server/src/gateway/client.ts`)**
+  - [x] Create `GatewayClient` class wrapping `fetch` with:
     - Auto-injected `Authorization: Bearer {org_token}` header
     - Auto-injected `TM-On-Behalf-Of: {user_id}` header
-    - Base URL: `https://api.truemarkets.co/v1/gateway`
+    - Base URL: `https://api.truemarkets.co`
     - JSON request/response serialization
     - Error wrapping with status codes
-  - [ ] Implement helper method `executeWithSignature(path, body)` that: creates resource → receives payloads → signs → executes
+  - [x] Implement helper method `getOrCreateUser()` that creates/provisions user wallets (Solana & EVM)
+  - [x] Implement helper methods `createAndExecuteOrder()` and `createAndExecuteTransfer()`: creates resource → receives payloads → signs → executes
 
-- [ ] **1.5 — Gateway types (`server/src/gateway/types.ts`)**
-  - [ ] Define TypeScript interfaces: `GatewayAuthResponse`, `GatewayOrder`, `GatewayTransfer`, `GatewayBalance`, `GatewayAsset`, `GatewayPayload`, `OrderRequest`, `TransferRequest`
+- [x] **1.5 — Gateway types (`server/src/gateway/types.ts`)**
+  - [x] Define TypeScript interfaces: `GatewayAuthResponse`, `GatewayUser`, `UserWallet`, `GatewayOrder`, `GatewayTransfer`, `GatewayBalance`, `GatewayPayload`, `OrderRequest`, `TransferRequest`
 
-- [ ] **1.6 — Integration smoke test**
-  - [ ] Create a temporary test script `server/src/test-auth.ts` that mints a token, fetches balances, and logs the result
-  - [ ] Verify the org token is valid and the signer user's wallets are accessible
-  - [ ] Delete test script after confirmation
+- [x] **1.6 — Integration smoke test**
+  - [x] Create test script `server/src/test-step1.ts` that mints token, provisions user, verifies payload signing, and fetches live balances
+  - [x] Verified org token is valid, signer user's wallets (Solana & EVM) are provisioned, and live PYUSD balance is 50 PYUSD
+
 
 ---
 

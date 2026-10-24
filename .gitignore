@@ -3,3 +3,12 @@
 !package.json
 !tsconfig.json
 .env
+node_modules/
+dist/
+.pnpm-store/
+data/
+node_modules/
+dist/
+.pnpm-store/
+data/
+.env
