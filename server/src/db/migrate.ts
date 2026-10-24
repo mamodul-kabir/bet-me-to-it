@@ -30,7 +30,7 @@ export function migrate(): void {
     insertCharity.run(
       'charity-save-children',
       'Save the Children',
-      'SaveChi1d111111111111111111111111111111111',
+      'Ff1nEWtJ98CZc8qGozcpHVf2VRAxveMGBJ1R8CMhouAt',
       'solana',
       'Provides emergency aid, education, and healthcare for children in crisis worldwide.',
       'https://api.dicebear.com/7.x/identicon/svg?seed=savethechildren'
@@ -39,7 +39,7 @@ export function migrate(): void {
     insertCharity.run(
       'charity-code-org',
       'Code.org Foundation',
-      'CodeOrg11111111111111111111111111111111111',
+      'GqpeRjhXhKDV67rnDeefkgMvRHV5gzxQvBy7c4m1gNEn',
       'solana',
       'Dedicated to expanding access to computer science in schools and increasing participation by young women.',
       'https://api.dicebear.com/7.x/identicon/svg?seed=codeorg'
@@ -48,7 +48,7 @@ export function migrate(): void {
     insertCharity.run(
       'charity-against-malaria',
       'Against Malaria Foundation',
-      'AgMalaria111111111111111111111111111111111',
+      'CjQiZvFsj4EDPwoJcX2Hg4yBJakWSCVctYwongJ9ieZY',
       'solana',
       'Top-rated charity providing long-lasting insecticidal nets to prevent malaria in high-risk regions.',
       'https://api.dicebear.com/7.x/identicon/svg?seed=malaria'

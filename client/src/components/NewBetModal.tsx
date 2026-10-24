@@ -63,7 +63,7 @@ export const NewBetModal: React.FC<NewBetModalProps> = ({
         target_asset_id: targetMarket?.id || '17d110fb-cc58-4959-b61c-9833ddf8f305',
         target_asset_symbol: targetSymbol,
         lock_duration_months: lockMonths,
-        charity_wallet: charityObj?.wallet_address || 'SaveChi1d111111111111111111111111111111111',
+        charity_wallet: charityObj?.wallet_address || 'Ff1nEWtJ98CZc8qGozcpHVf2VRAxveMGBJ1R8CMhouAt',
         charity_name: charityObj?.name || 'Save the Children',
       });
       onClose();

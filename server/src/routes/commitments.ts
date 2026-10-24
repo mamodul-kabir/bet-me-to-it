@@ -50,7 +50,7 @@ commitmentsRouter.post(['/', '/create'], (req, res) => {
       target_asset_id = '17d110fb-cc58-4959-b61c-9833ddf8f305', // NVDA
       target_asset_symbol = 'NVDA',
       lock_duration_months = 6,
-      charity_wallet = 'SaveChi1d111111111111111111111111111111111',
+      charity_wallet = 'Ff1nEWtJ98CZc8qGozcpHVf2VRAxveMGBJ1R8CMhouAt',
       charity_name = 'Save the Children',
     } = req.body;
 

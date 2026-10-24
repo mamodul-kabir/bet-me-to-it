@@ -58,7 +58,7 @@ export function spinConsequenceWheel(
 export async function executeCharitySlash(commitment: any): Promise<any> {
   const db = getDb();
   const stake = Math.max(parseFloat(String(commitment.stake_amount || 5)), 5); // min transfer size is 5 PYUSD
-  const charityWallet = commitment.charity_wallet || 'SaveChi1d111111111111111111111111111111111';
+  const charityWallet = commitment.charity_wallet || 'Ff1nEWtJ98CZc8qGozcpHVf2VRAxveMGBJ1R8CMhouAt';
 
   let transferResult: any;
   let txId: string;
